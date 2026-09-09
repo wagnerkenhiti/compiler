@@ -1,14 +1,10 @@
 #ifndef __CODE_H__
 #define __CODE_H__
 
-typedef struct arguments{
-    int argument;
-    struct arguments* nextArgument;
-} arguments;
 
 typedef struct line_code{
     char* mnemonic;
-    arguments* argument;
+    float argument;
 } line_code;
 
 

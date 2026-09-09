@@ -17,7 +17,7 @@ void fill_array(line_code array[], char* code){
     int lines = count_lines(code);
 
     for (int k=0;k<lines;k++){
-        array[k].argument=NULL;
+        array[k].argument=-1;
         array[k].mnemonic=NULL;
     }
         while (code[i]!='\0' && array_i < lines){
@@ -32,30 +32,35 @@ void fill_array(line_code array[], char* code){
                 strcpy(buffer_mal,buffer);
                 array[array_i].mnemonic = buffer_mal;
             }
-            else if (code[i] >='0' && code[i] <='9'){
-                int value =0;
-                while (code[i] >='0' && code[i] <='9' && i < strlen(code)){
-                    value = value * 10 + (code[i] - '0');
+            else if ((code[i] >= '0' && code[i] <= '9') || code[i] == '-' || code[i] == '.') {
+                double value = 0.0;
+                int sign = 1;
+
+                if (code[i] == '-') {
+                    sign = -1;
                     i++;
                 }
-                arguments* argument = malloc(sizeof(arguments));
-                argument->argument= value;
-                argument->nextArgument = NULL;
-                if(array[array_i].argument == NULL){
-                    array[array_i].argument = argument;
-                }
-                else{
-                    arguments* prev, *cur;
-                    prev = array[array_i].argument;
-                    cur = array[array_i].argument;
-                    while(cur!=NULL){
-                        prev = cur;
-                        cur = cur->nextArgument;
-                    }
-                    prev->nextArgument = argument;
-                }
-            }
 
+                while (code[i] >= '0' && code[i] <= '9' && i < strlen(code)) {
+                    value = value * 10.0 + (code[i] - '0');
+                    i++;
+                }
+
+                if (code[i] == '.') {
+                    i++;
+                    double divisor = 10.0;
+
+                    while (code[i] >= '0' && code[i] <= '9' && code[i] != '\0') {
+                        value = value + (code[i] - '0') / divisor;
+                        divisor *= 10.0;
+                        i++;
+                    }
+                }
+
+                value *= sign;
+
+                array[array_i].argument = value;
+            }
             else{
                 i++;
             }

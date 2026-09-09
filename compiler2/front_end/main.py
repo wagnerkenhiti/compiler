@@ -1,6 +1,7 @@
 import re
+
 # ==========================================
-# 1. ANALISADOR LÉXICO (LEXER)
+# 1. LEXICAL ANALYZER (LEXER)
 # ==========================================
 TOKEN_TYPES = [
     ('<?php', r'<\?php'),
@@ -9,7 +10,6 @@ TOKEN_TYPES = [
     ('else', r'\belse\b'),
     ('while', r'\bwhile\b'),
     ('echo', r'\becho\b'),
-    # Note que floatval e readline foram separados conforme a nova tabela
     ('floatval', r'\bfloatval\b'),
     ('readline', r'\breadline\b'),
     ('PHP_EOL', r'\bPHP_EOL\b'),
@@ -24,7 +24,6 @@ TOKEN_TYPES = [
     ('WS', r'\s+'),
 ]
 
-# Compilação prévia para performance
 COMPILED_TOKENS = [
     (token_type, re.compile(regex))
     for token_type, regex in TOKEN_TYPES
@@ -45,29 +44,28 @@ class Lexer:
                 match = pattern.match(self.code, pos)
                 if match:
                     if token_type != 'WS':
-                        self.tokens.append({'classe': token_type, 'lexema': match.group(0)})
+                        self.tokens.append({'class': token_type, 'lexeme': match.group(0)})
                     pos = match.end()
                     break
             if not match:
-                print(f"Erro Léxico: Caractere inválido: {self.code[pos]}")
+                print(f"Lexical Error: Invalid character: {self.code[pos]}")
                 break
-        self.tokens.append({'classe': '$', 'lexema': 'EOF'})
+        self.tokens.append({'class': '$', 'lexeme': 'EOF'})
 
     def next_token(self):
         if self.pos < len(self.tokens):
             t = self.tokens[self.pos]
             self.pos += 1
             return t
-        return {'classe': '$', 'lexema': 'EOF'}
+        return {'class': '$', 'lexeme': 'EOF'}
 
     def print_tokens(self):
         print(self.tokens)
 
 # ==========================================
-# 2. REGRAS DA GRAMÁTICA (LHS, |RHS|)
+# 2. GRAMMAR RULES (LHS, |RHS|)
 # ==========================================
-# ATUALIZADO: O tamanho a desempilhar (|RHS|) agora reflete os tokens soltos.
-REGRAS = {
+RULES = {
     0: ("PROG'", 1),
     1: ("PROG", 3),
     2: ("DC", 2),
@@ -80,15 +78,15 @@ REGRAS = {
     9: ("CMDS", 1),
     10: ("CMDS", 0),
     11: ("MAIS_CMDS", 2),
-    12: ("CMD_COND", 8),     # if ( CONDICAO ) { CMDS } PFALSA -> 8 tokens!
-    13: ("CMD_COND", 7),     # while ( CONDICAO ) { CMDS } -> 7 tokens!
+    12: ("CMD_COND", 8),
+    13: ("CMD_COND", 7),
     14: ("CMD", 4),
     15: ("CMD", 2),
-    16: ("PFALSA", 4),       # else { CMDS } -> 4 tokens!
+    16: ("PFALSA", 4),
     17: ("PFALSA", 0),
     18: ("RESTO_IDENT", 2),
     19: ("EXP_IDENT", 1),
-    20: ("EXP_IDENT", 6),    # floatval ( readline ( ) ) -> 6 tokens!
+    20: ("EXP_IDENT", 6),
     21: ("CONDICAO", 3),
     22: ("RELACAO", 1),
     23: ("RELACAO", 1),
@@ -114,9 +112,8 @@ REGRAS = {
 }
 
 # ==========================================
-# 3. TABELAS LR(1) (AÇÕES E GOTOS)
+# 3. LR(1) TABLES (ACTION AND GOTO)
 # ==========================================
-# Geradas baseadas no arquivo "tabela.xlsx" com 146 estados
 ACTION = {
     (0, '<?php'): 'S2',
     (1, '$'): 'ACC',
@@ -766,127 +763,243 @@ GOTO = {
     (144, 'VARS'): 12
 }
 
-
-# ==========================================
-# 4. MOTOR LR(1) COM ANALISADOR SEMÂNTICO
-# ==========================================
 class ParserLR1:
-    def __init__(self, lexer, action_table, goto_table, regras):
+    def __init__(self, lexer, action_table, goto_table, rules):
         self.lexer = lexer
         self.action = action_table
         self.goto = goto_table
-        self.regras = regras
+        self.rules = rules
 
-        # TABELA DE SÍMBOLOS: O coração do Analisador Semântico
-        self.tabela_simbolos = set()
+        self.symbol_table = {}
+        self.mem_count = 0
+
+        self.label_count = 0
+
+    def new_label(self):
+        self.label_count += 1
+        return f"L{self.label_count}"
 
     def parse(self):
-        pilha_estados = [0]
-
-        # Agora a pilha guarda dicionários para não perdermos o valor real do token
-        # Ex: {'classe': '$id', 'lexema': '$x'}
-        pilha_simbolos = []
-
+        state_stack = [0]
+        symbol_stack = []
         lookahead = self.lexer.next_token()
 
         while True:
-            estado_atual = pilha_estados[-1]
-            token_classe = lookahead['classe']
+            current_state = state_stack[-1]
+            token_class = lookahead['class']
 
-            chave = (estado_atual, token_classe)
-            acao = self.action.get(chave)
+            key = (current_state, token_class)
+            action = self.action.get(key)
 
-            if not acao:
-                print(f"\n[ERRO SINTÁTICO] Token inesperado '{lookahead['lexema']}' (Classe: {token_classe}) no estado {estado_atual}")
+            if not action:
+                print(f"\n[SYNTAX ERROR] Unexpected token '{lookahead['lexeme']}' (Class: {token_class}) at state {current_state}")
                 return False
 
-            if acao == 'ACC':
-                print("\n[SUCESSO SINTÁTICO E SEMÂNTICO] O código fonte é válido!")
-                print(f"Tabela de Símbolos Final: {self.tabela_simbolos}")
+            if action == 'ACC':
+                print("\n[SUCCESS] Valid Source Code!")
+                raw_code = symbol_stack[0].get('code', [])
+                self.assemble_final_code(raw_code)
                 return True
 
-            elif acao.startswith('S'):
-                # === SHIFT ===
-                proximo_estado = int(acao[1:])
-                pilha_estados.append(proximo_estado)
+            elif action.startswith('S'):
+                next_state = int(action[1:])
+                state_stack.append(next_state)
 
-                # Empilhamos o objeto inteiro do token, preservando o lexema
-                pilha_simbolos.append(lookahead)
+                symbol_stack.append({
+                    'class': token_class,
+                    'lexeme': lookahead['lexeme'],
+                    'code': []
+                })
                 lookahead = self.lexer.next_token()
 
-            elif acao.startswith('R'):
-                # === REDUCE (AÇÃO SEMÂNTICA) ===
-                id_regra = int(acao[1:])
-                lhs, tamanho_rhs = self.regras[id_regra]
+            elif action.startswith('R'):
+                rule_id = int(action[1:])
+                lhs, rhs_size = self.rules[rule_id]
+                reduced_items = symbol_stack[-rhs_size:] if rhs_size > 0 else []
 
-                # Vamos capturar os itens que estão sendo reduzidos da pilha
-                # para podermos inspecionar os valores antes de descartá-los
-                itens_reduzidos = pilha_simbolos[-tamanho_rhs:] if tamanho_rhs > 0 else []
+                generated_code = []
+                var_list = []
 
-                # --- INÍCIO DAS VALIDAÇÕES SEMÂNTICAS ---
+                try:
+                    if rule_id == 1:
+                        generated_code = ["INPP"] + reduced_items[1].get('code', []) + ["PARA"]
 
-                # Regra 4: VARS -> $id MAIS_VAR (Momento da DECLARAÇÃO)
-                if id_regra == 4:
-                    nome_var = itens_reduzidos[0]['lexema']
-                    if nome_var in self.tabela_simbolos:
-                        print(f"\n[ERRO SEMÂNTICO] A variável '{nome_var}' já foi declarada anteriormente.")
-                        return False
-                    self.tabela_simbolos.add(nome_var)
-                    print(f"[SEMÂNTICA] Variável declarada com sucesso: {nome_var}")
+                    elif rule_id == 2:
+                        generated_code = reduced_items[0].get('code', []) + reduced_items[1].get('code', [])
 
-                # Regra 14: CMD -> echo $id . PHP_EOL (Momento de USO no echo)
-                elif id_regra == 14:
-                    nome_var = itens_reduzidos[1]['lexema']
-                    if nome_var not in self.tabela_simbolos:
-                        print(f"\n[ERRO SEMÂNTICO] Uso de variável não declarada no echo: '{nome_var}'.")
-                        return False
+                    elif rule_id == 3:
+                        var_list = reduced_items[0].get('var_list', [])
+                        for var_name in var_list:
+                            if var_name in self.symbol_table:
+                                raise Exception(f"Variable '{var_name}' already declared.")
+                            self.symbol_table[var_name] = self.mem_count
+                            self.mem_count += 1
+                            generated_code.append("ALME 1")
 
-                # Regra 15: CMD -> $id RESTO_IDENT (Momento de ATRIBUIÇÃO, ex: $x = ...)
-                elif id_regra == 15:
-                    nome_var = itens_reduzidos[0]['lexema']
-                    if nome_var not in self.tabela_simbolos:
-                        print(f"\n[ERRO SEMÂNTICO] Tentativa de atribuir valor a uma variável não declarada: '{nome_var}'.")
-                        return False
+                    elif rule_id == 4:
+                        var_name = reduced_items[0]['lexeme']
+                        var_list = [var_name] + reduced_items[1].get('var_list', [])
 
-                # Regra 32: FATOR -> $id (Momento de USO MATEMÁTICO, ex: ... + $x)
-                elif id_regra == 32:
-                    nome_var = itens_reduzidos[0]['lexema']
-                    if nome_var not in self.tabela_simbolos:
-                        print(f"\n[ERRO SEMÂNTICO] A variável '{nome_var}' foi usada numa expressão sem ser declarada.")
-                        return False
+                    elif rule_id == 5:
+                        var_list = reduced_items[1].get('var_list', [])
 
-                # --- FIM DAS VALIDAÇÕES SEMÂNTICAS ---
+                    elif rule_id == 6:
+                        pass
 
-                # Desempilha os estados e símbolos sintáticos normalmente
-                for _ in range(tamanho_rhs):
-                    pilha_estados.pop()
-                    pilha_simbolos.pop()
+                    elif rule_id in [7, 8]:
+                        generated_code = reduced_items[0].get('code', []) + reduced_items[1].get('code', [])
 
-                estado_base = pilha_estados[-1]
-                proximo_estado = self.goto.get((estado_base, lhs))
+                    elif rule_id == 9:
+                        generated_code = reduced_items[0].get('code', [])
 
-                if proximo_estado is None:
-                    print(f"\n[ERRO INTERNO] Transição GOTO indefinida para Estado Base: {estado_base}, Simbolo: '{lhs}'")
+                    elif rule_id == 11:
+                        generated_code = reduced_items[1].get('code', [])
+
+                    elif rule_id == 12:
+                        l_false = self.new_label()
+                        l_end = self.new_label()
+                        cond_code = reduced_items[2].get('code', [])
+                        cmds_code = reduced_items[5].get('code', [])
+                        false_code = reduced_items[7].get('code', [])
+
+                        generated_code = cond_code + [f"DSVF {l_false}"] + cmds_code + [f"DSVI {l_end}"] + [f"{l_false}:"] + false_code + [f"{l_end}:"]
+
+                    elif rule_id == 13:
+                        l_start = self.new_label()
+                        l_end = self.new_label()
+                        cond_code = reduced_items[2].get('code', [])
+                        cmds_code = reduced_items[5].get('code', [])
+
+                        generated_code = [f"{l_start}:"] + cond_code + [f"DSVF {l_end}"] + cmds_code + [f"DSVI {l_start}"] + [f"{l_end}:"]
+
+                    elif rule_id == 14:
+                        var_name = reduced_items[1]['lexeme']
+                        if var_name not in self.symbol_table:
+                            raise Exception(f"Usage of undeclared variable: '{var_name}'.")
+                        addr = self.symbol_table[var_name]
+                        generated_code = [f"CRVL {addr}", "IMPR"]
+
+                    elif rule_id == 15:
+                        var_name = reduced_items[0]['lexeme']
+                        if var_name not in self.symbol_table:
+                            raise Exception(f"Assignment to undeclared variable: '{var_name}'.")
+                        addr = self.symbol_table[var_name]
+                        generated_code = reduced_items[1].get('code', []) + [f"ARMZ {addr}"]
+
+                    elif rule_id == 16:
+                        generated_code = reduced_items[2].get('code', [])
+
+                    elif rule_id == 18:
+                        generated_code = reduced_items[1].get('code', [])
+
+                    elif rule_id == 19:
+                        generated_code = reduced_items[0].get('code', [])
+
+                    elif rule_id == 20:
+                        generated_code = ["LEIT"]
+
+                    elif rule_id == 21:
+                        generated_code = reduced_items[0].get('code', []) + reduced_items[2].get('code', []) + reduced_items[1].get('code', [])
+
+                    elif rule_id == 22: generated_code = ["CPIG"]
+                    elif rule_id == 23: generated_code = ["CDES"]
+                    elif rule_id == 24: generated_code = ["CMAI"]
+                    elif rule_id == 25: generated_code = ["CPMI"]
+                    elif rule_id == 26: generated_code = ["CPMA"]
+                    elif rule_id == 27: generated_code = ["CPME"]
+
+                    elif rule_id == 28:
+                        generated_code = reduced_items[0].get('code', []) + reduced_items[1].get('code', [])
+
+                    elif rule_id == 29:
+                        generated_code = reduced_items[1].get('code', []) + reduced_items[0].get('code', []) + reduced_items[2].get('code', [])
+
+                    elif rule_id == 30:
+                        generated_code = ["INVE"]
+
+                    elif rule_id == 32:
+                        var_name = reduced_items[0]['lexeme']
+                        if var_name not in self.symbol_table:
+                            raise Exception(f"Undeclared variable: '{var_name}'.")
+                        addr = self.symbol_table[var_name]
+                        generated_code = [f"CRVL {addr}"]
+
+                    elif rule_id == 33:
+                        val = reduced_items[0]['lexeme']
+                        generated_code = [f"CRCT {val}"]
+
+                    elif rule_id == 34:
+                        generated_code = reduced_items[1].get('code', [])
+
+                    elif rule_id == 35:
+                        generated_code = reduced_items[1].get('code', []) + reduced_items[0].get('code', []) + reduced_items[2].get('code', [])
+
+                    elif rule_id == 37: generated_code = ["SOMA"]
+                    elif rule_id == 38: generated_code = ["SUBT"]
+
+                    elif rule_id == 39:
+                        generated_code = reduced_items[1].get('code', []) + reduced_items[0].get('code', []) + reduced_items[2].get('code', [])
+
+                    elif rule_id == 41: generated_code = ["MULT"]
+                    elif rule_id == 42: generated_code = ["DIVI"]
+
+                except Exception as e:
+                    print(f"\n[SEMANTIC ERROR] {e}")
                     return False
 
-                # Empilha o Não-Terminal reduzido
-                # Como o Não-Terminal não tem um lexema literal do código fonte, deixamos None
-                pilha_simbolos.append({'classe': lhs, 'lexema': None})
-                pilha_estados.append(proximo_estado)
+                for _ in range(rhs_size):
+                    state_stack.pop()
+                    symbol_stack.pop()
 
+                base_state = state_stack[-1]
+                next_state = self.goto.get((base_state, lhs))
 
-# ==========================================
-# 5. EXECUÇÃO
-# ==========================================
+                symbol_stack.append({
+                    'class': lhs,
+                    'lexeme': None,
+                    'code': generated_code,
+                    'var_list': var_list
+                })
+                state_stack.append(next_state)
+
+    def assemble_final_code(self, raw_code):
+        instructions = []
+        label_map = {}
+
+        index = 0
+        for line in raw_code:
+            if line.endswith(":"):
+                label_name = line[:-1]
+                label_map[label_name] = index
+            else:
+                instructions.append(line)
+                index += 1
+
+        final_code = []
+        for line in instructions:
+            parts = line.split()
+            if parts[0] in ["DSVI", "DSVF"]:
+                label = parts[1]
+                rel_address = label_map.get(label)
+                final_code.append(f"{parts[0]} {rel_address}")
+            else:
+                final_code.append(line)
+
+        final_string = "\n".join(final_code)
+
+        file = open("../back_end/object_code.txt", "w")
+        file.write(final_string)
+        file.close()
+
 if __name__ == '__main__':
 
-    f = open("codigo.php","r")
-    codigo_fonte  = f.read()
+    f = open("codigo.php", "r")
+    source_code  = f.read()
     f.close()
 
-    print(codigo_fonte)
-    print("Iniciando o compilador LR(1)...")
-    meu_lexer = Lexer(codigo_fonte)
-    meu_parser = ParserLR1(meu_lexer, ACTION, GOTO, REGRAS)
-    meu_lexer.print_tokens()
-    meu_parser.parse()
+    print(source_code)
+    print("Starting LR(1) compiler...")
+    my_lexer = Lexer(source_code)
+    my_parser = ParserLR1(my_lexer, ACTION, GOTO, RULES)
+    my_lexer.print_tokens()
+    my_parser.parse()
