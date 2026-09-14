@@ -199,6 +199,7 @@ int main(){
                 break;
             }
             register_i = (int)C_array[register_i].argument - 1;
+            register_s--;
         }
         else if(strcmp(C_array[register_i].mnemonic, "DSVF") == 0){
             if (lines < (int)C_array[register_i].argument){
