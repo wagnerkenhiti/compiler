@@ -13,9 +13,10 @@ int main(){
     fill_array(C_array, code);
 
     int register_i = 0;
+    int register_s;
+    float D_array[lines*2];
+
     while(register_i <= lines-1){
-        int register_s;
-        float D_array[lines*2];
         if (strcmp(C_array[register_i].mnemonic, "CRCT") == 0){
             register_s++;
             D_array[register_s] = C_array[register_i].argument;
@@ -197,7 +198,7 @@ int main(){
                 register_i = lines*2;
                 break;
             }
-            register_i = (int)C_array[register_i].argument;
+            register_i = (int)C_array[register_i].argument - 1;
         }
         else if(strcmp(C_array[register_i].mnemonic, "DSVF") == 0){
             if (lines < (int)C_array[register_i].argument){

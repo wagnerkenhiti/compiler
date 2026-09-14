@@ -1,9 +1,9 @@
+
 <?php
-    $x, $y;
-    $x = floatval ( readline ( ) ) ;
-    if ( $x >= 10.5 ) {
-        echo $x . PHP_EOL ;
-    } else {
-        $y = $x * 2 ;
-    }
+$contador;
+$contador = 0;
+while ($contador < 10) {
+    echo $contador . PHP_EOL;
+    $contador = $contador + 1;
+}
 ?>
